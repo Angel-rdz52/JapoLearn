@@ -279,22 +279,16 @@ document.getElementById('btn-canvas-clear').addEventListener('click', clearCanva
 document.getElementById('btn-canvas-check').addEventListener('click', async () => {
     const chars = currentLesson.caracteres_practica || [];
     const c = chars[charIndex];
-    const imageBase64 = canvas.toDataURL('image/png').split(',')[1];
 
     document.getElementById('canvas-evaluating').classList.remove('hidden');
     document.getElementById('canvas-feedback').classList.add('hidden');
     document.getElementById('btn-canvas-check').classList.add('hidden');
 
     try {
-        const { data, error } = await supabase.functions.invoke('evaluate-stroke', {
-            body: { imageBase64, targetChar: c.caracter, romaji: c.romaji, tipo: c.tipo || currentTopic }
-        });
-        if (error) throw new Error('Error de Supabase: ' + JSON.stringify(error));
-        if (data && data.error) throw new Error('Error de la IA: ' + data.error);
-
+        const resultado = await evaluarTrazoLocal(c.caracter);
         document.getElementById('canvas-evaluating').classList.add('hidden');
-        document.getElementById('canvas-score').innerText = data.porcentaje;
-        document.getElementById('canvas-feedback-text').innerText = data.feedback;
+        document.getElementById('canvas-score').innerText = resultado.porcentaje;
+        document.getElementById('canvas-feedback-text').innerText = resultado.feedback;
         document.getElementById('canvas-feedback').classList.remove('hidden');
         document.getElementById('btn-canvas-next').classList.remove('hidden');
     } catch (err) {
@@ -303,6 +297,116 @@ document.getElementById('btn-canvas-check').addEventListener('click', async () =
         alert('DIAGNÓSTICO:\n\n' + err.message);
     }
 });
+
+// ---------- Evaluación local del trazo (sin IA, sin tokens) ----------
+// Compara el dibujo del usuario contra el carácter renderizado con una fuente
+// japonesa real, usando una rejilla de celdas con tolerancia de alineación.
+const GRID = 52;             // celdas por lado (260px / 5)
+const TOLERANCIA_CELDAS = 2; // radio de tolerancia al comparar celdas
+const referenceMaskCache = new Map();
+
+async function ensureFontLoaded() {
+    if (document.fonts && document.fonts.load) {
+        try { await document.fonts.load('700 200px "Noto Sans JP"'); } catch (e) { /* fuente no disponible, se usa fallback */ }
+    }
+}
+
+function buildMaskFromImageData(imageData, w, h) {
+    const cellW = w / GRID, cellH = h / GRID;
+    const mask = new Array(GRID * GRID).fill(false);
+    for (let gy = 0; gy < GRID; gy++) {
+        for (let gx = 0; gx < GRID; gx++) {
+            let inked = false;
+            outer:
+            for (let py = Math.floor(gy * cellH); py < Math.floor((gy + 1) * cellH); py += 2) {
+                for (let px = Math.floor(gx * cellW); px < Math.floor((gx + 1) * cellW); px += 2) {
+                    const idx = (py * w + px) * 4;
+                    const alpha = imageData.data[idx + 3];
+                    if (alpha > 100) { inked = true; break outer; }
+                }
+            }
+            mask[gy * GRID + gx] = inked;
+        }
+    }
+    return mask;
+}
+
+async function getReferenceMask(char) {
+    if (referenceMaskCache.has(char)) return referenceMaskCache.get(char);
+    await ensureFontLoaded();
+
+    const off = document.createElement('canvas');
+    off.width = 260; off.height = 260;
+    const octx = off.getContext('2d');
+    octx.clearRect(0, 0, 260, 260);
+    octx.fillStyle = '#000000';
+    octx.font = '700 190px "Noto Sans JP", sans-serif';
+    octx.textAlign = 'center';
+    octx.textBaseline = 'middle';
+    octx.fillText(char, 130, 138);
+
+    const imageData = octx.getImageData(0, 0, 260, 260);
+    const mask = buildMaskFromImageData(imageData, 260, 260);
+    referenceMaskCache.set(char, mask);
+    return mask;
+}
+
+function cellHasNeighborInked(mask, gx, gy, radius) {
+    for (let dy = -radius; dy <= radius; dy++) {
+        for (let dx = -radius; dx <= radius; dx++) {
+            const nx = gx + dx, ny = gy + dy;
+            if (nx < 0 || ny < 0 || nx >= GRID || ny >= GRID) continue;
+            if (mask[ny * GRID + nx]) return true;
+        }
+    }
+    return false;
+}
+
+async function evaluarTrazoLocal(targetChar) {
+    const refMask = await getReferenceMask(targetChar);
+    const userImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const userMask = buildMaskFromImageData(userImageData, canvas.width, canvas.height);
+
+    let refInkCount = 0, coveredCount = 0;
+    let userInkCount = 0, precisionCount = 0;
+
+    for (let gy = 0; gy < GRID; gy++) {
+        for (let gx = 0; gx < GRID; gx++) {
+            const i = gy * GRID + gx;
+            if (refMask[i]) {
+                refInkCount++;
+                if (cellHasNeighborInked(userMask, gx, gy, TOLERANCIA_CELDAS)) coveredCount++;
+            }
+            if (userMask[i]) {
+                userInkCount++;
+                if (cellHasNeighborInked(refMask, gx, gy, TOLERANCIA_CELDAS)) precisionCount++;
+            }
+        }
+    }
+
+    if (userInkCount < 5) {
+        return { porcentaje: 0, feedback: 'No detecté ningún trazo. Dibuja el carácter dentro del recuadro.' };
+    }
+
+    const cobertura = refInkCount ? coveredCount / refInkCount : 0;
+    const precision = userInkCount ? precisionCount / userInkCount : 0;
+    const score = Math.round((0.6 * cobertura + 0.4 * precision) * 100);
+
+    let feedback;
+    if (score >= 85) {
+        feedback = '¡Excelente trazo! La forma y proporción se ven muy bien.';
+    } else if (cobertura < 0.6 && precision >= 0.6) {
+        feedback = 'Vas por buen camino, pero te falta cubrir parte del carácter. Revisa que dibujes todos los trazos.';
+    } else if (precision < 0.6 && cobertura >= 0.6) {
+        feedback = 'Cubriste bien la forma, pero te saliste bastante de los límites. Intenta trazos más contenidos.';
+    } else if (score >= 70) {
+        feedback = 'Buen intento, se reconoce el carácter. Sigue practicando la proporción.';
+    } else {
+        feedback = 'Aún no se parece lo suficiente al carácter objetivo. Observa su forma con calma e inténtalo de nuevo.';
+    }
+
+    return { porcentaje: score, feedback };
+}
 
 document.getElementById('btn-canvas-next').addEventListener('click', () => {
     const chars = currentLesson.caracteres_practica || [];
