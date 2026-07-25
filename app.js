@@ -88,7 +88,7 @@ async function startLesson(topic, modo) {
     charIndex = 0; quizIndex = 0; quizScore = 0; dictadoIndex = 0; dictadoScore = 0; sentenceOk = false;
 
     try {
-        const { data, error } = await supabase.functions.invoke('generate-lesson', {
+        const { data, error } = await supabase.functions.invoke('generate--lesson', {
             body: { topic, modo, level: currentUser.level, streak: currentUser.success_streak }
         });
         if (error) throw new Error('Error de Supabase: ' + JSON.stringify(error));
