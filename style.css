@@ -1,0 +1,30 @@
+.screen-hidden { display: none !important; }
+.screen-active { display: flex !important; }
+.option-btn { transition: all 0.2s ease; }
+.option-btn.correct {
+    background-color: #22c55e !important;
+    color: white !important;
+    border-color: #16a34a !important;
+}
+.option-btn.incorrect {
+    background-color: #ef4444 !important;
+    color: white !important;
+    border-color: #dc2626 !important;
+}
+#trace-canvas {
+    cursor: crosshair;
+    background: transparent;
+}
+.char-chip {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 8px 4px;
+    background: #fff1f2;
+    border: 1px solid #fecdd3;
+    border-radius: 10px;
+    font-weight: 700;
+    color: #9f1239;
+}
+.char-chip span.chip-char { font-size: 22px; line-height: 1; }
+.char-chip span.chip-romaji { font-size: 10px; color: #64748b; font-weight: 600; margin-top: 2px; }
