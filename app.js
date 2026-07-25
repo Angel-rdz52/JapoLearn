@@ -2,8 +2,8 @@
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm'
 
 // ⚠️ Reemplaza con los datos de TU proyecto de Supabase (igual que en LeeConmigo)
-const SUPABASE_URL = 'https://TU-PROYECTO.supabase.co';
-const SUPABASE_ANON_KEY = 'TU_ANON_KEY_AQUI';
+const SUPABASE_URL = 'https://jxlbfwaansqiwdopdwbg.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_JYom-Z0M4PdD056TJ9k9nA_Xrwg3CID';
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 let currentUser = null;
